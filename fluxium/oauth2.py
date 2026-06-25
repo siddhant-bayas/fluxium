@@ -1,13 +1,16 @@
 """
 Advanced authentication: OAuth2, Bearer tokens, and auto-refresh.
 """
+
 from __future__ import annotations
 
 import time
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Callable
 
 from .auth import AuthBase
-from .models import Request
+
+if TYPE_CHECKING:
+    from .models import Request
 
 
 class BearerAuth(AuthBase):
@@ -42,6 +45,7 @@ class BearerAuth(AuthBase):
             self._token = self._refresh_callback()
         elif self._refresh_url and client:
             import fluxium
+
             resp = fluxium.post(
                 self._refresh_url,
                 data={

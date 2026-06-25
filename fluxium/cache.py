@@ -1,7 +1,9 @@
 """Built-in caching layer for Fluxium.
 
-Supports in-memory and disk-based caching with TTL.
+Supports in-memory and disk-based caching with TTL, plus an optional
+RFC 7234 compliant cache via ``hishel`` (install with ``pip install fluxium[cache]``).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -80,7 +82,7 @@ class DiskCache(CacheBackend):
         try:
             data = json.loads(path.read_text())
             if time.time() < data["expires"]:
-                return data["value"]
+                return data["value"]  # type: ignore[no-any-return]
             path.unlink(missing_ok=True)
         except (json.JSONDecodeError, KeyError, OSError):
             path.unlink(missing_ok=True)
@@ -131,3 +133,43 @@ def _cache_to_response(data: dict) -> Response:
     resp.encoding = data.get("encoding", "utf-8")
     resp.cookies = CookieJar()
     return resp
+
+
+class HishelCache(CacheBackend):
+    """RFC 7234 compliant cache using ``hishel``.
+
+    Respects ``Cache-Control``, ``ETag``, ``Vary``, and other HTTP caching
+    semantics. Install with ``pip install fluxium[cache]``.
+    """
+
+    def __init__(self, base_url: str = "", storage: Any = None, **kwargs):
+        try:
+            import hishel
+        except ImportError as e:
+            raise ImportError("HishelCache requires 'hishel': pip install hishel") from e
+        self._hishel = hishel
+        self._controller = hishel.Controller()
+        self._storage: Any = storage or hishel.InMemoryStorage()
+        self._base_url = base_url
+
+    def get(self, key: str) -> dict | None:
+        result: Any = self._storage.get(key)
+        return result  # type: ignore[no-any-return]
+
+    def set(self, key: str, value: dict, ttl: int) -> None:
+        self._storage.set(key, value, ttl)
+
+    def delete(self, key: str) -> None:
+        self._storage.delete(key)
+
+    def clear(self) -> None:
+        self._storage.clear()
+
+    def is_cachable(
+        self, method: str, url: str, headers: dict | None, response_status: int
+    ) -> bool:
+        """Check if a response is cacheable per RFC 7234."""
+        result: Any = self._controller.is_cachable(
+            method.upper(), url, headers or {}, response_status
+        )
+        return result  # type: ignore[no-any-return]

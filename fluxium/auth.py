@@ -1,4 +1,7 @@
 """Authentication handlers."""
+
+from __future__ import annotations
+
 import base64
 import hashlib
 import os
@@ -16,16 +19,14 @@ class AuthBase:
 class BasicAuth(AuthBase):
     """HTTP Basic authentication (RFC 7617)."""
 
-    __slots__ = ("username", "password")
+    __slots__ = ("password", "username")
 
     def __init__(self, username: str, password: str = ""):
         self.username = username
         self.password = password
 
     def __call__(self, r):
-        token = base64.b64encode(
-            f"{self.username}:{self.password}".encode()
-        ).decode()
+        token = base64.b64encode(f"{self.username}:{self.password}".encode()).decode()
         r.headers["Authorization"] = f"Basic {token}"
         return r
 
@@ -40,18 +41,18 @@ class DigestAuth(AuthBase):
     Supports MD5, MD5-sess algorithms and auth/auth-int QoP.
     """
 
-    __slots__ = ("username", "password", "_last_nonce", "_nc", "_cnonce")
+    __slots__ = ("_cnonce", "_last_nonce", "_nc", "password", "username")
 
     def __init__(self, username: str, password: str):
         self.username = username
         self.password = password
-        self._last_nonce = None
+        self._last_nonce: str | None = None
         self._nc = 0
-        self._cnonce = None
+        self._cnonce: str | None = None
 
     def _parse_challenge(self, header: str) -> dict[str, str]:
         parts = {}
-        header = header[len("Digest "):].strip()
+        header = header[len("Digest ") :].strip()
         for m in re.finditer(r'(\w+)=["\']?([^\"\'`,]+)["\']?', header):
             parts[m.group(1)] = m.group(2).strip()
         return parts

@@ -1,20 +1,35 @@
 """Request and Response models."""
+
 from __future__ import annotations
 
 import json as _json
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, Any
 
 from .cookies import CookieJar
 from .exceptions import HTTPError
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 class Request:
     """Internal request object used by auth handlers."""
 
-    __slots__ = ("method", "url", "headers", "data", "json", "params", "auth", "cookies")
+    __slots__ = (
+        "_start_time",
+        "auth",
+        "cookies",
+        "data",
+        "headers",
+        "json",
+        "method",
+        "params",
+        "url",
+    )
 
-    def __init__(self, method, url, headers=None, data=None,
-                 json=None, params=None, auth=None, cookies=None):
+    def __init__(
+        self, method, url, headers=None, data=None, json=None, params=None, auth=None, cookies=None
+    ):
         self.method = method.upper()
         self.url = url
         self.headers = headers or {}
@@ -41,9 +56,18 @@ class Response:
     """
 
     __slots__ = (
-        "status_code", "url", "headers", "cookies", "_content",
-        "encoding", "history", "elapsed", "request", "_raw",
-        "_text", "_enc",
+        "_content",
+        "_enc",
+        "_raw",
+        "_text",
+        "cookies",
+        "elapsed",
+        "encoding",
+        "headers",
+        "history",
+        "request",
+        "status_code",
+        "url",
     )
 
     def __init__(self):
@@ -87,6 +111,7 @@ class Response:
             pass
         try:
             import chardet
+
             detected = chardet.detect(self._content)
             self._enc = detected.get("encoding") or self.encoding
         except ImportError:
@@ -100,9 +125,7 @@ class Response:
     def raise_for_status(self) -> None:
         """Raise :class:`HTTPError` if status is 4xx or 5xx."""
         if 400 <= self.status_code < 600:
-            raise HTTPError(
-                f"HTTP {self.status_code} for url: {self.url}", response=self
-            )
+            raise HTTPError(f"HTTP {self.status_code} for url: {self.url}", response=self)
 
     def iter_content(self, chunk_size: int = 8192) -> Iterator[bytes]:
         """Iterate over response body in *chunk_size* bytes at a time."""
@@ -110,7 +133,7 @@ class Response:
             yield from self._raw.iter_bytes(chunk_size=chunk_size)
         else:
             for i in range(0, len(self._content), chunk_size):
-                yield self._content[i:i + chunk_size]
+                yield self._content[i : i + chunk_size]
 
     def iter_lines(self) -> Iterator[str]:
         """Iterate over response body line by line."""
@@ -121,7 +144,7 @@ class Response:
             while b"\n" in buf:
                 idx = buf.index(b"\n")
                 line = bytes(buf[:idx]).rstrip(b"\r")
-                del buf[:idx + 1]
+                del buf[: idx + 1]
                 yield line.decode(enc, errors="replace")
         if buf:
             yield bytes(buf).decode(enc, errors="replace")

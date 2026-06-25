@@ -22,6 +22,7 @@ HTTP2BIN = "https://nghttp2.org/httpbin"
 # BASIC REQUESTS
 # ============================================================
 
+
 def test_get():
     r = fluxium.get(f"{HTTPBIN}/get", timeout=15)
 
@@ -57,6 +58,7 @@ def test_query_params():
 # COOKIES
 # ============================================================
 
+
 def test_cookies():
     jar = fluxium.CookieJar({"testcookie": "fluxval"})
 
@@ -88,6 +90,7 @@ def test_session_cookie_persistence():
 # REDIRECTS
 # ============================================================
 
+
 def test_redirect_chain():
     r = fluxium.get(
         f"{HTTPBIN}/redirect/5",
@@ -102,6 +105,7 @@ def test_redirect_chain():
 # TIMEOUTS
 # ============================================================
 
+
 def test_timeout():
     with pytest.raises(TimeoutError):
         fluxium.get(
@@ -113,6 +117,7 @@ def test_timeout():
 # ============================================================
 # FILE UPLOADS
 # ============================================================
+
 
 def test_file_upload():
     f = io.BytesIO(b"hello fluxium")
@@ -136,6 +141,7 @@ def test_file_upload():
 # CHUNKED UPLOADS
 # ============================================================
 
+
 def chunk_generator():
     for _ in range(1024):
         yield b"x" * 1024
@@ -156,6 +162,7 @@ def test_chunked_upload():
 # STREAMING
 # ============================================================
 
+
 def test_stream_lines():
     r = fluxium.get(
         f"{HTTPBIN}/stream/100",
@@ -175,6 +182,7 @@ def test_stream_lines():
 # CONNECTION REUSE
 # ============================================================
 
+
 def test_connection_reuse():
     with Session() as s:
         for _ in range(10):
@@ -190,6 +198,7 @@ def test_connection_reuse():
 # MULTITHREAD
 # ============================================================
 
+
 def _thread_worker():
     with Session() as s:
         for _ in range(50):
@@ -202,14 +211,8 @@ def _thread_worker():
 
 
 def test_thread_stress():
-    with concurrent.futures.ThreadPoolExecutor(
-        max_workers=20
-    ) as executor:
-
-        futures = [
-            executor.submit(_thread_worker)
-            for _ in range(20)
-        ]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        futures = [executor.submit(_thread_worker) for _ in range(20)]
 
         for future in futures:
             future.result()
@@ -218,6 +221,7 @@ def test_thread_stress():
 # ============================================================
 # MEMORY LEAK CHECK
 # ============================================================
+
 
 def test_memory_stability():
     process = psutil.Process(os.getpid())
@@ -246,6 +250,7 @@ def test_memory_stability():
 # INVALID URLS
 # ============================================================
 
+
 @pytest.mark.parametrize(
     "url",
     [
@@ -263,6 +268,7 @@ def test_invalid_urls(url):
 # ============================================================
 # IDNA / UNICODE DOMAINS
 # ============================================================
+
 
 @pytest.mark.parametrize(
     "url",
@@ -285,6 +291,7 @@ def test_idna_domains(url):
 # ============================================================
 # ASYNC TESTS
 # ============================================================
+
 
 @pytest.mark.asyncio
 async def test_async_get():
@@ -310,10 +317,7 @@ async def test_500_concurrent_requests():
 
         responses = await asyncio.gather(*tasks)
 
-    assert all(
-        r.status_code == 200
-        for r in responses
-    )
+    assert all(r.status_code == 200 for r in responses)
 
 
 @pytest.mark.asyncio
@@ -332,11 +336,7 @@ async def test_2000_concurrent_requests():
             return_exceptions=True,
         )
 
-    failures = [
-        r
-        for r in responses
-        if isinstance(r, Exception)
-    ]
+    failures = [r for r in responses if isinstance(r, Exception)]
 
     assert len(failures) < 20
 
@@ -345,12 +345,10 @@ async def test_2000_concurrent_requests():
 # HTTP/2
 # ============================================================
 
+
 @pytest.mark.asyncio
 async def test_http2_multiplex():
-    async with AsyncSession(
-        http2=True
-    ) as s:
-
+    async with AsyncSession(http2=True) as s:
         tasks = [
             s.get(
                 f"{HTTP2BIN}/get",
@@ -361,15 +359,13 @@ async def test_http2_multiplex():
 
         responses = await asyncio.gather(*tasks)
 
-    assert all(
-        r.status_code == 200
-        for r in responses
-    )
+    assert all(r.status_code == 200 for r in responses)
 
 
 # ============================================================
 # LARGE DOWNLOAD
 # ============================================================
+
 
 def test_large_download():
     r = fluxium.get(
@@ -384,10 +380,10 @@ def test_large_download():
 # REAL STRESS TEST
 # ============================================================
 
+
 @pytest.mark.asyncio
 async def test_10000_requests():
     async with AsyncSession() as s:
-
         tasks = [
             s.get(
                 f"{HTTPBIN}/get",
@@ -401,17 +397,10 @@ async def test_10000_requests():
             return_exceptions=True,
         )
 
-    failures = [
-        x
-        for x in results
-        if isinstance(x, Exception)
-    ]
+    failures = [x for x in results if isinstance(x, Exception)]
 
     success = len(results) - len(failures)
 
-    print(
-        f"success={success}, "
-        f"failures={len(failures)}"
-    )
+    print(f"success={success}, failures={len(failures)}")
 
     assert success >= 9900

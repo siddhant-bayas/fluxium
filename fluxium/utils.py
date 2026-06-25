@@ -1,7 +1,7 @@
 """URL utilities: IDNA encoding, param serialization, netrc."""
+
 from __future__ import annotations
 
-import hashlib
 from urllib.parse import urlencode, urlparse, urlunparse
 
 import idna
@@ -13,6 +13,7 @@ _netrc_creds_cache: dict[str, tuple | None] = {}
 def _get_netrc():
     """Read and cache the netrc file."""
     import netrc as _netrc_mod
+
     global _netrc_cache
     if _netrc_cache is None:
         try:

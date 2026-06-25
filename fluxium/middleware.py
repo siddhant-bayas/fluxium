@@ -1,10 +1,12 @@
 """Middleware / hooks system for Fluxium."""
+
 from __future__ import annotations
 
 import time
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
-from .models import Request, Response
+if TYPE_CHECKING:
+    from .models import Request, Response
 
 HookFunc = Callable[..., Any]
 
@@ -60,10 +62,11 @@ class LoggingMiddleware(Middleware):
 
     def __init__(self, logger=None):
         import logging
+
         self.logger = logger or logging.getLogger("fluxium")
 
     def on_request(self, request: Request) -> Request:
-        request._start_time = time.perf_counter()
+        request._start_time = time.perf_counter()  # type: ignore[attr-defined]
         self.logger.debug(f"→ {request.method} {request.url}")
         return request
 
@@ -73,7 +76,8 @@ class LoggingMiddleware(Middleware):
             elapsed = (time.perf_counter() - elapsed) * 1000
         self.logger.debug(
             f"← {response.status_code} {response.url} ({elapsed:.1f}ms)"
-            if elapsed else f"← {response.status_code} {response.url}"
+            if elapsed
+            else f"← {response.status_code} {response.url}"
         )
         return response
 
@@ -81,8 +85,8 @@ class LoggingMiddleware(Middleware):
 class RetryMiddleware(Middleware):
     """Automatic retries with exponential backoff for transient errors."""
 
-    RETRYABLE_STATUS = {408, 429, 500, 502, 503, 504}
-    RETRYABLE_EXCEPTIONS = ("TimeoutError", "ConnectionError")
+    RETRYABLE_STATUS: frozenset[int] = frozenset({408, 429, 500, 502, 503, 504})
+    RETRYABLE_EXCEPTIONS: tuple[str, ...] = ("TimeoutError", "ConnectionError")
 
     def __init__(
         self,
@@ -99,11 +103,50 @@ class RetryMiddleware(Middleware):
     def should_retry(self, response: Response | None, error: Exception | None) -> bool:
         if error:
             return type(error).__name__ in self.RETRYABLE_EXCEPTIONS
-        if response:
+        if response is not None:
             return response.status_code in self.retry_on_status
         return False
 
     def get_backoff(self, attempt: int) -> float:
         import random
-        backoff = self.backoff_factor * (2 ** attempt)
+
+        backoff: float = self.backoff_factor * (2**attempt)
         return min(backoff + random.uniform(0, 0.1), self.max_backoff)
+
+
+class RateLimitMiddleware(Middleware):
+    """Rate limiting middleware using a token bucket.
+
+    Limits requests to `calls` per `period` seconds.
+
+    Example:
+        # Max 100 requests per 60 seconds
+        session.add_middleware(RateLimitMiddleware(calls=100, period=60))
+    """
+
+    def __init__(self, calls: int = 100, period: float = 60.0):
+        self._calls = calls
+        self._period = period
+        self._tokens = float(calls)
+        self._max_tokens = float(calls)
+        self._refill_rate = calls / period
+        import time
+
+        self._time = time
+        self._last_refill = time.monotonic()
+
+    def on_request(self, request: Request) -> Request:
+        now = self._time.monotonic()
+        elapsed = now - self._last_refill
+        self._tokens = min(self._max_tokens, self._tokens + elapsed * self._refill_rate)
+        self._last_refill = now
+
+        if self._tokens < 1.0:
+            wait = (1.0 - self._tokens) / self._refill_rate
+            self._time.sleep(wait)
+            self._tokens = 0.0
+            self._last_refill = self._time.monotonic()
+        else:
+            self._tokens -= 1.0
+
+        return request

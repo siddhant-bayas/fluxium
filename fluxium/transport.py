@@ -1,17 +1,42 @@
 """Transport layer: builds httpx clients with connection pooling and TLS."""
+
 from __future__ import annotations
 
+import asyncio
 import ssl
+from typing import TYPE_CHECKING
 
 import httpx
 
+if TYPE_CHECKING:
+    from .timeout import Timeout
+
 try:
     import brotli as _brotli  # noqa: F401
+
     _HAS_BROTLI = True
 except ImportError:
     _HAS_BROTLI = False
 
 ACCEPT_ENCODING = "gzip, deflate" + (", br" if _HAS_BROTLI else "")
+
+
+def _install_uvloop() -> bool:
+    """Install uvloop as the asyncio event loop policy if available.
+
+    Returns True if uvloop was installed, False otherwise.
+    """
+    try:
+        import uvloop
+
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+        return True
+    except ImportError:
+        return False
+
+
+# Install uvloop on import if available (no-op if not installed)
+_UVLOOP_INSTALLED = _install_uvloop()
 
 
 def _make_ssl_ctx(verify):
@@ -27,6 +52,8 @@ def _parse_timeout(t):
         return httpx.Timeout(None)
     if isinstance(t, httpx.Timeout):
         return t
+    if hasattr(t, "to_httpx"):
+        return t.to_httpx()
     if isinstance(t, (int, float)):
         return httpx.Timeout(float(t))
     if isinstance(t, tuple):
@@ -53,10 +80,11 @@ def _make_transport(proxy_url: str, *, verify, sync: bool):
     if lower.startswith("socks5://") or lower.startswith("socks4://"):
         try:
             import httpx_socks
+
             cls = httpx_socks.SyncProxyTransport if sync else httpx_socks.AsyncProxyTransport
             return cls.from_url(proxy_url, verify=verify)
-        except ImportError:
-            raise ImportError("SOCKS proxy requires 'httpx-socks': pip install httpx-socks")
+        except ImportError as e:
+            raise ImportError("SOCKS proxy requires 'httpx-socks': pip install httpx-socks") from e
     if sync:
         return httpx.HTTPTransport(proxy=httpx.Proxy(proxy_url), verify=verify)
     return httpx.AsyncHTTPTransport(proxy=httpx.Proxy(proxy_url), verify=verify)
@@ -66,7 +94,7 @@ def _build_sync_client(
     *,
     verify: bool | str = True,
     proxies: dict | str | None = None,
-    timeout: float | tuple | None = 30.0,
+    timeout: float | tuple | Timeout | None = 30.0,
     http2: bool = True,
     trust_env: bool = True,
 ) -> httpx.Client:
@@ -76,7 +104,9 @@ def _build_sync_client(
     return httpx.Client(
         http2=http2,
         verify=ssl_ctx,
-        limits=httpx.Limits(max_connections=200, max_keepalive_connections=100, keepalive_expiry=30),
+        limits=httpx.Limits(
+            max_connections=200, max_keepalive_connections=100, keepalive_expiry=30
+        ),
         timeout=t,
         follow_redirects=False,
         trust_env=trust_env,
@@ -88,7 +118,7 @@ def _build_async_client(
     *,
     verify: bool | str = True,
     proxies: dict | str | None = None,
-    timeout: float | tuple | None = 30.0,
+    timeout: float | tuple | Timeout | None = 30.0,
     http2: bool = True,
     trust_env: bool = True,
 ) -> httpx.AsyncClient:
@@ -98,7 +128,9 @@ def _build_async_client(
     return httpx.AsyncClient(
         http2=http2,
         verify=ssl_ctx,
-        limits=httpx.Limits(max_connections=200, max_keepalive_connections=100, keepalive_expiry=30),
+        limits=httpx.Limits(
+            max_connections=200, max_keepalive_connections=100, keepalive_expiry=30
+        ),
         timeout=t,
         follow_redirects=False,
         trust_env=trust_env,

@@ -1,0 +1,7 @@
+mkdocs>=1.5
+mkdocs-material>=9.0
+mkdocs-git-revision-date-plugin>=0.3
+# or for sphinx:
+# sphinx>=7.0
+# sphinx-rtd-theme>=2.0
+# sphinx-autodoc-typehints>=1.25

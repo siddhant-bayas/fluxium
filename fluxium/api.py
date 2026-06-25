@@ -1,8 +1,13 @@
 """Module-level convenience functions — one-shot requests."""
+
 from __future__ import annotations
 
-from .models import Response
+from typing import TYPE_CHECKING
+
 from .session import Session
+
+if TYPE_CHECKING:
+    from .models import Response
 
 
 def request(method: str, url: str, **kwargs) -> Response:
@@ -40,6 +45,7 @@ def options(url, **kw) -> Response:
 
 async def arequest(method: str, url: str, **kwargs) -> Response:
     from .session import AsyncSession
+
     async with AsyncSession() as s:
         return await s.request(method, url, **kwargs)
 

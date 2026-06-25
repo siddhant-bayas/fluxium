@@ -1,5 +1,9 @@
 """Dict-like CookieJar with full http.cookiejar integration."""
-from http.cookiejar import CookieJar as _CJ, Cookie
+
+from __future__ import annotations
+
+from http.cookiejar import Cookie
+from http.cookiejar import CookieJar as _CJ
 
 
 class CookieJar(_CJ):
@@ -23,11 +27,12 @@ class CookieJar(_CJ):
     def __getitem__(self, name: str) -> str:
         for c in self:
             if c.name == name:
-                return c.value
+                return c.value or ""
         raise KeyError(name)
 
     def __delitem__(self, name: str) -> None:
-        for d in self._cookies.values():
+        _cookies: dict = object.__getattribute__(self, "_cookies")
+        for d in _cookies.values():
             for p in d.values():
                 p.pop(name, None)
 
@@ -45,13 +50,13 @@ class CookieJar(_CJ):
             return default
 
     def items(self) -> list[tuple[str, str]]:
-        return [(c.name, c.value) for c in self]
+        return [(c.name, c.value or "") for c in self]
 
     def keys(self) -> list[str]:
         return [c.name for c in self]
 
     def values(self) -> list[str]:
-        return [c.value for c in self]
+        return [c.value or "" for c in self]
 
     def update(self, cookies) -> None:
         if isinstance(cookies, dict):
@@ -61,22 +66,33 @@ class CookieJar(_CJ):
             for c in cookies:
                 domain = c.domain or ""
                 path = c.path or "/"
-                self._cookies.setdefault(domain, {}).setdefault(path, {})[c.name] = c
+                _cookies: dict = object.__getattribute__(self, "_cookies")
+                _cookies.setdefault(domain, {}).setdefault(path, {})[c.name] = c
 
     def set(self, name: str, value: str, domain: str = "", path: str = "/") -> None:
         cookie = Cookie(
-            version=0, name=name, value=value,
-            port=None, port_specified=False,
-            domain=domain, domain_specified=bool(domain),
+            version=0,
+            name=name,
+            value=value,
+            port=None,
+            port_specified=False,
+            domain=domain,
+            domain_specified=bool(domain),
             domain_initial_dot=domain.startswith(".") if domain else False,
-            path=path, path_specified=bool(path),
-            secure=False, expires=None, discard=True,
-            comment=None, comment_url=None, rest={},
+            path=path,
+            path_specified=bool(path),
+            secure=False,
+            expires=None,
+            discard=True,
+            comment=None,
+            comment_url=None,
+            rest={},
         )
-        self._cookies.setdefault(domain, {}).setdefault(path, {})[name] = cookie
+        _cookies: dict = object.__getattribute__(self, "_cookies")
+        _cookies.setdefault(domain, {}).setdefault(path, {})[name] = cookie
 
     def to_dict(self) -> dict[str, str]:
-        return {c.name: c.value for c in self}
+        return {c.name: c.value or "" for c in self}
 
     def to_header(self) -> str:
         return "; ".join(f"{c.name}={c.value}" for c in self)

@@ -1,16 +1,21 @@
 """Streaming and Server-Sent Events (SSE) support for Fluxium."""
+
 from __future__ import annotations
 
+import contextlib
 import json
-from typing import Any, AsyncIterator, Iterator
+from typing import TYPE_CHECKING, Any
 
-from .models import Response
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Iterator
+
+    from .models import Response
 
 
 class SSEEvent:
     """A single Server-Sent Events event."""
 
-    __slots__ = ("event", "data", "id", "retry")
+    __slots__ = ("data", "event", "id", "retry")
 
     def __init__(
         self,
@@ -56,10 +61,8 @@ def iter_sse(response: Response) -> Iterator[SSEEvent]:
         elif field == "id":
             event.id = value
         elif field == "retry":
-            try:
+            with contextlib.suppress(ValueError):
                 event.retry = int(value)
-            except ValueError:
-                pass
     if event.data:
         yield event
 
@@ -92,10 +95,8 @@ async def aiter_sse(response: Response) -> AsyncIterator[SSEEvent]:
         elif field == "id":
             event.id = value
         elif field == "retry":
-            try:
+            with contextlib.suppress(ValueError):
                 event.retry = int(value)
-            except ValueError:
-                pass
     if event.data:
         yield event
 
@@ -134,6 +135,7 @@ class StreamReader:
 
     def save_to(self, path: str | None = None) -> str:
         import os
+
         if path is None:
             path = self._response.url.split("/")[-1].split("?")[0] or "download"
         with open(path, "wb") as f:

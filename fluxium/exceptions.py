@@ -1,4 +1,23 @@
-"""Fluxium exception hierarchy."""
+"""Fluxium exception hierarchy and warnings."""
+
+
+class FluxiumWarning(UserWarning):
+    """Base warning for fluxium deprecations and non-fatal issues."""
+
+
+class InsecureSSLWarning(FluxiumWarning):
+    """Warning when TLS verification is disabled."""
+
+
+class RetryWarning(FluxiumWarning):
+    """Warning emitted before a retry attempt."""
+
+    def __init__(self, attempt: int, max_retries: int, url: str, reason: str):
+        self.attempt = attempt
+        self.max_retries = max_retries
+        self.url = url
+        self.reason = reason
+        super().__init__(f"Retry {attempt}/{max_retries} for {url}: {reason}")
 
 
 class FluxiumError(Exception):

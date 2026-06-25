@@ -1,0 +1,30 @@
+site_name: Fluxium
+site_description: A fast, modern HTTP client for Python
+repo_url: https://github.com/siddhant-bayas/fluxium
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started/index.md
+  - Guides: guides/index.md
+  - API Reference: api-reference/index.md
+  - Advanced: advanced/index.md
+  - Changelog: changelog/index.md
+  - Community: community/security.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
