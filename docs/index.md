@@ -1,6 +1,6 @@
 # Fluxium Documentation
 
-Welcome to the **fluxium** 2.0.0 documentation.
+Welcome to the **fluxium** 3.0.0 documentation.
 
 ## Quick Links
 

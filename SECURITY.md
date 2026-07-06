@@ -4,6 +4,7 @@
 
 | Version | Supported |
 |---|---|
+| 3.0.0 | Yes |
 | 2.0.0 | Yes |
 | 1.0.0 | No (critical retry bug, upgrade recommended) |
 

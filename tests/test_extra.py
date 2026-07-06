@@ -1,4 +1,4 @@
-"""Additional tests for fluxium 2.0.0 - reaching 250+ total."""
+"""Additional tests for fluxium 3.0.0 - reaching 250+ total."""
 
 from __future__ import annotations
 

@@ -34,7 +34,7 @@ pip install -e ".[dev]"
 
 ```python
 import fluxium
-print(fluxium.__version__)  # 2.0.0
+print(fluxium.__version__)  # 3.0.0
 ```
 
 ## Dependencies

@@ -15,6 +15,7 @@ Features:
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import mimetypes
@@ -57,7 +58,7 @@ if TYPE_CHECKING:
     from .timeout import Timeout
 
 _DEFAULT_HEADERS = {
-    "user-agent": "fluxium/2.0.0 (https://github.com/siddhant-bayas/fluxium)",
+    "user-agent": "fluxium/3.0.0 (https://github.com/siddhant-bayas/fluxium)",
     "accept": "*/*",
     "accept-encoding": ACCEPT_ENCODING,
     "connection": "keep-alive",
@@ -65,26 +66,6 @@ _DEFAULT_HEADERS = {
 
 MAX_REDIRECTS = 30
 _JSON_SEPARATORS = (",", ":")
-_timeout_cache: dict = {}
-
-
-def _resolve_timeout(t):
-    """Convert timeout to httpx.Timeout object. Cached for performance."""
-    cached = _timeout_cache.get(t)
-    if cached is not None:
-        return cached
-    if t is None:
-        result = httpx.Timeout(None)
-    elif isinstance(t, httpx.Timeout):
-        result = t
-    elif isinstance(t, (int, float)):
-        result = httpx.Timeout(float(t))
-    elif isinstance(t, tuple) and len(t) >= 2:
-        result = httpx.Timeout(float(t[1]), connect=float(t[0]))
-    else:
-        result = httpx.Timeout(30.0)
-    _timeout_cache[t] = result
-    return result
 
 
 class Session:
@@ -228,7 +209,14 @@ class Session:
         method_upper = method.upper()
 
         # ── Prepare ──────────────────────────────────────────────────────────
-        body, body_headers = _prepare_body(data, json, files, chunked)
+        body, body_headers = None, None
+        if (
+            method_upper not in ("GET", "HEAD")
+            or data is not None
+            or json is not None
+            or files is not None
+        ):
+            body, body_headers = _prepare_body(data, json, files, chunked)
 
         final_url = encode_url(url, params) if params else url
 
@@ -256,23 +244,29 @@ class Session:
             else:
                 merged_cookies.update(cookies)
             cookie_header = merged_cookies.to_header()
-            has_cookies = True
+            has_cookies = bool(cookie_header)
         elif self.cookies:
             cookie_header = self.cookies.to_header()
-            has_cookies = True
+            has_cookies = bool(cookie_header)
 
         # Headers
         if headers or has_cookies or body_headers:
             merged_headers = dict(self.headers)
             if headers:
-                for k, v in headers.items():
-                    merged_headers[k.lower()] = v
+                merged_headers.update((k.lower(), v) for k, v in headers.items())
             if body_headers:
                 merged_headers.update(body_headers)
             if cookie_header:
                 merged_headers["cookie"] = cookie_header
         else:
             merged_headers = self.headers
+
+        # Apply auth headers
+        if effective_auth and isinstance(effective_auth, AuthBase):
+            if merged_headers is self.headers:
+                merged_headers = dict(merged_headers)
+            dummy = Request(method_upper, final_url, headers=merged_headers)
+            effective_auth(dummy)
 
         # ── Build request ────────────────────────────────────────────────────
         httpx_req = self._client.build_request(
@@ -283,21 +277,25 @@ class Session:
         )
 
         # Apply middleware stack
-        httpx_req = self._middleware.apply_request(httpx_req) or httpx_req
+        if self._middleware:
+            httpx_req = self._middleware.apply_request(httpx_req) or httpx_req
 
         # Run request hooks
-        httpx_req = self._run_hooks("request", httpx_req) or httpx_req
-
-        # Apply auth headers
-        if effective_auth and isinstance(effective_auth, AuthBase):
-            dummy = Request(method_upper, final_url, headers=dict(httpx_req.headers))
-            dummy = effective_auth(dummy)
-            for k, v in dummy.headers.items():
-                httpx_req.headers[k] = v
+        if self._hooks:
+            httpx_req = self._run_hooks("request", httpx_req) or httpx_req
 
         # Timeout
         effective_timeout = timeout if timeout is not None else self.timeout
-        t = _resolve_timeout(effective_timeout)
+        if effective_timeout is None:
+            t = httpx.Timeout(None)
+        elif isinstance(effective_timeout, httpx.Timeout):
+            t = effective_timeout
+        elif isinstance(effective_timeout, (int, float)):
+            t = httpx.Timeout(float(effective_timeout))
+        elif isinstance(effective_timeout, tuple) and len(effective_timeout) >= 2:
+            t = httpx.Timeout(float(effective_timeout[1]), connect=float(effective_timeout[0]))
+        else:
+            t = httpx.Timeout(30.0)
         httpx_req.extensions["timeout"] = {  # type: ignore[union-attr]
             "connect": t.connect or 5.0,
             "read": t.read or 30.0,
@@ -315,12 +313,13 @@ class Session:
         )
 
         # ── Run response hooks ──────────────────────────────────────────────
-        resp = (
-            self._run_hooks(
-                "response", resp, Request(method_upper, final_url, headers=merged_headers)
+        if self._hooks:
+            resp = (
+                self._run_hooks(
+                    "response", resp, Request(method_upper, final_url, headers=merged_headers)
+                )
+                or resp
             )
-            or resp
-        )
 
         # ── Cache store ──────────────────────────────────────────────────────
         if self._cache and not stream:
@@ -395,12 +394,17 @@ class Session:
     def _send_with_redirects(self, req, *, allow_redirects, stream, auth, timeout, client=None):
         if client is None:
             client = self._client
+        _transport = client._transport
         history = []
         current_req = req
         for _ in range(self.max_redirects + 1):
-            raw = client.send(current_req, stream=stream)
+            raw = _transport.handle_request(current_req)  # skip httpx auth/redirect wrappers
+            if not stream:
+                raw.read()
+            raw.request = current_req
             resp = _build_response(raw, stream=stream)
-            resp.history = list(history)
+            if history:
+                resp.history = list(history)
 
             # Digest auth on 401
             if raw.status_code == 401 and isinstance(auth, DigestAuth):
@@ -408,14 +412,21 @@ class Session:
                 if www_auth.lower().startswith("digest"):
                     hdr = auth.build_header(current_req.method, str(current_req.url), www_auth)
                     current_req.headers["Authorization"] = hdr
-                    raw = client.send(current_req, stream=stream)
+                    raw = _transport.handle_request(current_req)
+                    if not stream:
+                        raw.read()
+                    raw.request = current_req
                     resp = _build_response(raw, stream=stream)
-                    resp.history = list(history)
+                    if history:
+                        resp.history = list(history)
 
             # Update session cookies from response
-            _hostname = urlparse(str(raw.url)).hostname or ""
-            for name, value in raw.cookies.items():
-                self.cookies.set(name, value, domain=_hostname)
+            if "set-cookie" in raw.headers:
+                rc = raw.cookies
+                if rc:
+                    _hostname = urlparse(str(raw.url)).hostname or ""
+                    for name, value in rc.items():
+                        self.cookies.set(name, value, domain=_hostname)
 
             if not allow_redirects or not resp.is_redirect:
                 return resp
@@ -565,6 +576,8 @@ class AsyncSession:
 
     def _run_hooks(self, event: str, *args) -> Any:
         """Run all hooks for an event. Returns modified response if event='response'."""
+        if not self._hooks:
+            return None
         result = None
         for hook in self._hooks:
             if hook["event"] == event:
@@ -619,7 +632,14 @@ class AsyncSession:
         method_upper = method.upper()
 
         # Prepare
-        body, body_headers = _prepare_body(data, json, files, chunked)
+        body, body_headers = None, None
+        if (
+            method_upper not in ("GET", "HEAD")
+            or data is not None
+            or json is not None
+            or files is not None
+        ):
+            body, body_headers = _prepare_body(data, json, files, chunked)
 
         final_url = encode_url(url, params) if params else url
 
@@ -646,22 +666,28 @@ class AsyncSession:
             else:
                 merged_cookies.update(cookies)
             cookie_header = merged_cookies.to_header()
-            has_cookies = True
+            has_cookies = bool(cookie_header)
         elif self.cookies:
             cookie_header = self.cookies.to_header()
-            has_cookies = True
+            has_cookies = bool(cookie_header)
 
         if headers or has_cookies or body_headers:
             merged_headers = dict(self.headers)
             if headers:
-                for k, v in headers.items():
-                    merged_headers[k.lower()] = v
+                merged_headers.update((k.lower(), v) for k, v in headers.items())
             if body_headers:
                 merged_headers.update(body_headers)
             if cookie_header:
                 merged_headers["cookie"] = cookie_header
         else:
             merged_headers = self.headers
+
+        # Apply auth headers before building
+        if effective_auth and isinstance(effective_auth, AuthBase):
+            if merged_headers is self.headers:
+                merged_headers = dict(merged_headers)
+            dummy = Request(method_upper, final_url, headers=merged_headers)
+            effective_auth(dummy)
 
         # Build
         httpx_req = self._client.build_request(
@@ -672,19 +698,24 @@ class AsyncSession:
         )
 
         # Apply middleware stack
-        httpx_req = self._middleware.apply_request(httpx_req) or httpx_req
+        if self._middleware:
+            httpx_req = self._middleware.apply_request(httpx_req) or httpx_req
 
         # Run request hooks
-        httpx_req = self._run_hooks("request", httpx_req) or httpx_req
-
-        if effective_auth and isinstance(effective_auth, AuthBase):
-            dummy = Request(method_upper, final_url, headers=dict(httpx_req.headers))
-            dummy = effective_auth(dummy)
-            for k, v in dummy.headers.items():
-                httpx_req.headers[k] = v
+        if self._hooks:
+            httpx_req = self._run_hooks("request", httpx_req) or httpx_req
 
         effective_timeout = timeout if timeout is not None else self.timeout
-        t = _resolve_timeout(effective_timeout)
+        if effective_timeout is None:
+            t = httpx.Timeout(None)
+        elif isinstance(effective_timeout, httpx.Timeout):
+            t = effective_timeout
+        elif isinstance(effective_timeout, (int, float)):
+            t = httpx.Timeout(float(effective_timeout))
+        elif isinstance(effective_timeout, tuple) and len(effective_timeout) >= 2:
+            t = httpx.Timeout(float(effective_timeout[1]), connect=float(effective_timeout[0]))
+        else:
+            t = httpx.Timeout(30.0)
         httpx_req.extensions["timeout"] = {  # type: ignore[union-attr]
             "connect": t.connect or 5.0,
             "read": t.read or 30.0,
@@ -702,12 +733,13 @@ class AsyncSession:
         )
 
         # Run response hooks
-        resp = (
-            self._run_hooks(
-                "response", resp, Request(method_upper, final_url, headers=merged_headers)
+        if self._hooks:
+            resp = (
+                self._run_hooks(
+                    "response", resp, Request(method_upper, final_url, headers=merged_headers)
+                )
+                or resp
             )
-            or resp
-        )
 
         # Cache store
         if self._cache and not stream:
@@ -735,8 +767,6 @@ class AsyncSession:
                 if attempt < max_retries and self._retry_mw:
                     if self._retry_mw.should_retry(resp, None):
                         backoff = self._retry_mw.get_backoff(attempt)
-                        import asyncio
-
                         await asyncio.sleep(backoff)
                         last_error = None
                         continue
@@ -748,8 +778,6 @@ class AsyncSession:
                 if attempt < max_retries and self._retry_mw:
                     if self._retry_mw.should_retry(None, last_error):
                         backoff = self._retry_mw.get_backoff(attempt)
-                        import asyncio
-
                         await asyncio.sleep(backoff)
                         continue
                 raise last_error
@@ -765,8 +793,6 @@ class AsyncSession:
                 if attempt < max_retries and self._retry_mw:
                     if self._retry_mw.should_retry(None, last_error):
                         backoff = self._retry_mw.get_backoff(attempt)
-                        import asyncio
-
                         await asyncio.sleep(backoff)
                         continue
                 raise last_error
@@ -775,8 +801,6 @@ class AsyncSession:
                 if attempt < max_retries and self._retry_mw:
                     if self._retry_mw.should_retry(None, last_error):
                         backoff = self._retry_mw.get_backoff(attempt)
-                        import asyncio
-
                         await asyncio.sleep(backoff)
                         continue
                 raise last_error
@@ -789,24 +813,36 @@ class AsyncSession:
     async def _send_with_redirects_async(
         self, req, *, allow_redirects, stream, auth, timeout, client, method, final_url
     ):
+        _transport = client._transport
         history = []
         for _ in range(self.max_redirects + 1):
-            raw = await client.send(req, stream=stream)
+            raw = await _transport.handle_async_request(req)
+            if not stream:
+                await raw.aread()
+            raw.request = req
             resp = _build_response(raw, stream=stream)
-            resp.history = list(history)
+            if history:
+                resp.history = list(history)
 
             if raw.status_code == 401 and isinstance(auth, DigestAuth):
                 www_auth = raw.headers.get("www-authenticate", "")
                 if www_auth.lower().startswith("digest"):
                     hdr = auth.build_header(method, final_url, www_auth)
                     req.headers["Authorization"] = hdr
-                    raw = await client.send(req, stream=stream)
+                    raw = await _transport.handle_async_request(req)
+                    if not stream:
+                        await raw.aread()
+                    raw.request = req
                     resp = _build_response(raw, stream=stream)
-                    resp.history = list(history)
+                    if history:
+                        resp.history = list(history)
 
-            _hostname = urlparse(str(raw.url)).hostname or ""
-            for name, value in raw.cookies.items():
-                self.cookies.set(name, value, domain=_hostname)
+            if "set-cookie" in raw.headers:
+                rc = raw.cookies
+                if rc:
+                    _hostname = urlparse(str(raw.url)).hostname or ""
+                    for name, value in rc.items():
+                        self.cookies.set(name, value, domain=_hostname)
 
             if not allow_redirects or not resp.is_redirect:
                 return resp
@@ -960,8 +996,11 @@ def _build_response(raw: httpx.Response, *, stream: bool) -> Response:
     resp.status_code = raw.status_code
     resp.url = str(raw.url)
     resp.headers = dict(raw.headers)
-    for name, value in raw.cookies.items():
-        resp.cookies.set(name, value)
+    if "set-cookie" in raw.headers:
+        rc = raw.cookies
+        if rc:
+            for name, value in rc.items():
+                resp.cookies.set(name, value)
     if stream:
         resp._raw = raw
     else:

@@ -37,16 +37,22 @@ class MiddlewareStack:
         self._middleware.remove(mw)
 
     def apply_request(self, request: Request) -> Request:
+        if not self._middleware:
+            return request
         for mw in self._middleware:
             request = mw.on_request(request)
         return request
 
     def apply_response(self, response: Response) -> Response:
+        if not self._middleware:
+            return response
         for mw in self._middleware:
             response = mw.on_response(response)
         return response
 
     def apply_error(self, error: Exception, request: Request) -> None:
+        if not self._middleware:
+            return
         for mw in self._middleware:
             mw.on_error(error, request)
 

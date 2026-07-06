@@ -165,27 +165,32 @@ def bench_multipart(base_url):
     results = []
     url = base_url + "/post"
 
+    fs = fluxium.Session()
+
     def _fluxium():
         f = io.BytesIO(b"file content")
-        fs = fluxium.Session()
         fs.post(url, files={"file": ("test.txt", f, "text/plain")}, timeout=15)
-        fs.close()
+
+    results.append(bench("fluxium (session)", _fluxium))
+    fs.close()
+
+    rs = requests.Session()
 
     def _requests():
         f = io.BytesIO(b"file content")
-        rs = requests.Session()
         rs.post(url, files={"file": ("test.txt", f, "text/plain")}, timeout=15)
-        rs.close()
+
+    results.append(bench("requests (session)", _requests))
+    rs.close()
+
+    hs = httpx.Client()
 
     def _httpx():
         f = io.BytesIO(b"file content")
-        hs = httpx.Client()
         hs.post(url, files={"file": ("test.txt", f, "text/plain")}, timeout=15)
-        hs.close()
 
-    results.append(bench("fluxium (session)", _fluxium))
-    results.append(bench("requests (session)", _requests))
     results.append(bench("httpx (session)", _httpx))
+    hs.close()
 
     print(f"\n{SEP}")
     print(f"  Multipart file upload (session, {ITERATIONS} iters)")
@@ -197,21 +202,28 @@ def bench_async_section(base_url):
     results = []
     url = base_url + "/get"
 
+    fluxium_session = None
+    httpx_client = None
+    aiohttp_session = None
+
     async def _all_benchmarks():
-        # fluxium
+        nonlocal fluxium_session, httpx_client, aiohttp_session
+        fluxium_session = fluxium.AsyncSession()
+        httpx_client = httpx.AsyncClient()
+        aiohttp_session = aiohttp.ClientSession()
+
         async def _fluxium():
-            async with fluxium.AsyncSession() as s:
-                await asyncio.gather(*[s.get(url, timeout=15) for _ in range(ASYNC_CONCURRENT)])
+            await asyncio.gather(
+                *[fluxium_session.get(url, timeout=15) for _ in range(ASYNC_CONCURRENT)]
+            )
 
-        # httpx
         async def _httpx():
-            async with httpx.AsyncClient() as c:
-                await asyncio.gather(*[c.get(url, timeout=15) for _ in range(ASYNC_CONCURRENT)])
+            await asyncio.gather(
+                *[httpx_client.get(url, timeout=15) for _ in range(ASYNC_CONCURRENT)]
+            )
 
-        # aiohttp
         async def _aiohttp():
-            async with aiohttp.ClientSession() as s:
-                await asyncio.gather(*[s.get(url) for _ in range(ASYNC_CONCURRENT)])
+            await asyncio.gather(*[aiohttp_session.get(url) for _ in range(ASYNC_CONCURRENT)])
 
         coros = [
             ("fluxium (async)", _fluxium),
@@ -232,6 +244,14 @@ def bench_async_section(base_url):
                 print(f"  {name} skipped: {e}")
 
     asyncio.run(_all_benchmarks())
+
+    # Cleanup sessions used during async benchmarks
+    if fluxium_session:
+        asyncio.run(fluxium_session.close())
+    if httpx_client:
+        asyncio.run(httpx_client.aclose())
+    if aiohttp_session:
+        asyncio.run(aiohttp_session.close())
 
     print(f"\n{SEP}")
     print(f"  Async concurrent GET ({ASYNC_CONCURRENT} concurrent)")

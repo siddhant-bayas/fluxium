@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fluxium"
-version = "2.0.0"
+version = "3.0.0"
 description = "A fast, modern HTTP client for Python"
 readme = "README.md"
 license = {text = "MIT"}
@@ -26,11 +26,11 @@ dependencies = [
 
 [project.optional-dependencies]
 socks = ["httpx-socks>=0.7,<1"]
-uvloop = ["uvloop>=0.19,<1"]
+uvloop = ["uvloop>=0.19,<1; sys_platform != 'win32'"]
 cache = ["hishel>=0.1,<1"]
 all = [
     "httpx-socks>=0.7,<1",
-    "uvloop>=0.19,<1",
+    "uvloop>=0.19,<1; sys_platform != 'win32'",
     "hishel>=0.1,<1",
 ]
 test = [

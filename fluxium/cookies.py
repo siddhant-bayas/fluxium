@@ -14,10 +14,12 @@ class CookieJar(_CJ):
     for a plain ``{name: value}`` mapping.
     """
 
-    __slots__ = ()
+    __slots__ = ("_dirty", "_header_cache")
 
     def __init__(self, cookies=None):
         super().__init__()
+        self._dirty = True
+        self._header_cache: str | None = None
         if cookies:
             self.update(cookies)
 
@@ -31,6 +33,7 @@ class CookieJar(_CJ):
         raise KeyError(name)
 
     def __delitem__(self, name: str) -> None:
+        self._dirty = True
         _cookies: dict = object.__getattribute__(self, "_cookies")
         for d in _cookies.values():
             for p in d.values():
@@ -59,6 +62,7 @@ class CookieJar(_CJ):
         return [c.value or "" for c in self]
 
     def update(self, cookies) -> None:
+        self._dirty = True
         if isinstance(cookies, dict):
             for k, v in cookies.items():
                 self.set(k, v)
@@ -70,6 +74,7 @@ class CookieJar(_CJ):
                 _cookies.setdefault(domain, {}).setdefault(path, {})[c.name] = c
 
     def set(self, name: str, value: str, domain: str = "", path: str = "/") -> None:
+        self._dirty = True
         cookie = Cookie(
             version=0,
             name=name,
@@ -91,8 +96,17 @@ class CookieJar(_CJ):
         _cookies: dict = object.__getattribute__(self, "_cookies")
         _cookies.setdefault(domain, {}).setdefault(path, {})[name] = cookie
 
+    def clear(self) -> None:
+        self._dirty = True
+        super().clear()
+
     def to_dict(self) -> dict[str, str]:
         return {c.name: c.value or "" for c in self}
 
     def to_header(self) -> str:
-        return "; ".join(f"{c.name}={c.value}" for c in self)
+        if not self._dirty and self._header_cache is not None:
+            return self._header_cache
+        header = "; ".join(f"{c.name}={c.value}" for c in self)
+        self._header_cache = header
+        self._dirty = False
+        return header

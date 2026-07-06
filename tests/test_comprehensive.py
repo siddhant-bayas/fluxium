@@ -1,4 +1,4 @@
-"""Comprehensive test suite for fluxium 2.0.0.
+"""Comprehensive test suite for fluxium 3.0.0.
 
 250+ deterministic tests using respx for HTTP mocking.
 """
