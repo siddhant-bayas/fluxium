@@ -26,6 +26,10 @@
 - **CookieJar always truthy** — `CookieJar()` inherited from `http.cookiejar.CookieJar` which has no `__bool__`, causing `if self.cookies:` to force `dict(self.headers)` on every request even with an empty jar. Fixed to check `bool(cookie_header)` instead.
 - **Benchmark session reuse** — multipart and async benchmarks now reuse sessions across iterations instead of creating a new `httpx.Client()` per request (~300ms overhead on Windows).
 
+### Migration
+
+No breaking changes. v2 users can upgrade directly. See [v2-to-v3.md](migration/v2-to-v3.md) for details.
+
 ---
 
 ## [2.0.0] — 2026-06-24
