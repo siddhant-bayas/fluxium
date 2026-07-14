@@ -96,9 +96,11 @@ class CookieJar(_CJ):
         _cookies: dict = object.__getattribute__(self, "_cookies")
         _cookies.setdefault(domain, {}).setdefault(path, {})[name] = cookie
 
-    def clear(self) -> None:
+    def clear(
+        self, domain: str | None = None, path: str | None = None, name: str | None = None
+    ) -> None:
         self._dirty = True
-        super().clear()
+        super().clear(domain, path, name)
 
     def to_dict(self) -> dict[str, str]:
         return {c.name: c.value or "" for c in self}
